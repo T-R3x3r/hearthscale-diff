@@ -1,0 +1,23 @@
+/* The Diff view's own layout, over the kit Hearthscale loads into the
+   view. */
+
+.diff-root {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* A Remix Icon takes the box of its font size, as a drawn mark does. */
+.diff-glyph {
+  display: block;
+  flex: none;
+  width: 1em;
+  height: 1em;
+  line-height: 1;
+}
+
+.hs-shell :is(.hs-hovbox, .hs-hovbox-ink, .hs-button):active .diff-glyph {
+  transform: var(--press);
+  opacity: var(--press-fade);
+}

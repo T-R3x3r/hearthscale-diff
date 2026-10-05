@@ -1,0 +1,35 @@
+{
+  "id": "diff",
+  "name": "Diff",
+  "version": "1.0.0",
+  "api": 4,
+  "icon": {
+    "light": "assets/icon-light.svg",
+    "dark": "assets/icon-dark.svg"
+  },
+  "description": "Read the changes of a git repository you choose, and comment on lines for the chat.",
+  "environment": {
+    "kind": "process"
+  },
+  "uses": [
+    "roots"
+  ],
+  "contributes": {
+    "main": {
+      "kind": "own",
+      "title": "Diff"
+    }
+  },
+  "surfaces": [
+    {
+      "id": "diff",
+      "kind": "view",
+      "title": "Diff",
+      "entry": "views/diff.js",
+      "placements": [
+        "rail",
+        "tab"
+      ]
+    }
+  ]
+}
