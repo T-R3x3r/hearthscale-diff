@@ -2,7 +2,7 @@
   "id": "diff",
   "name": "Diff",
   "version": "1.0.0",
-  "api": 4,
+  "api": 6,
   "icon": {
     "light": "assets/icon-light.svg",
     "dark": "assets/icon-dark.svg"
@@ -14,12 +14,6 @@
   "uses": [
     "roots"
   ],
-  "contributes": {
-    "main": {
-      "kind": "own",
-      "title": "Diff"
-    }
-  },
   "surfaces": [
     {
       "id": "diff",
