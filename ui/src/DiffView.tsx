@@ -250,6 +250,10 @@ export interface DiffSelection {
 export interface DiffViewProps {
   /** A unified patch, as `git diff` writes it. */
   patch: string;
+  /** A file of the patch, as it names it, scrolled to the top once its
+   *  rows exist; `onFocused` hears that the view took it. */
+  focus?: string;
+  onFocused?: () => void;
   /** The whole text of the file at `path`, so an unmodified run can be
    *  expanded in place. */
   loadFile: (path: string) => Promise<string>;
@@ -262,7 +266,7 @@ export interface DiffViewProps {
  * A patch, read. Unified rows only; split view, word wrap and syntax
  * colouring are not drawn here.
  */
-export function DiffView({ patch, loadFile, onComment }: DiffViewProps) {
+export function DiffView({ patch, focus, onFocused, loadFile, onComment }: DiffViewProps) {
   const parsed = useMemo(() => parsePatch(patch), [patch]);
   const [runs, setRuns] = useState<Map<string, Run>>(new Map());
   const [shut, setShut] = useState<Set<string>>(new Set());
@@ -315,6 +319,13 @@ export function DiffView({ patch, loadFile, onComment }: DiffViewProps) {
       return { file, rows, tops, body, top: at };
     });
   }, [parsed, runs, shut]);
+
+  useEffect(() => {
+    if (focus === undefined) return;
+    const group = groups.find((g) => g.file.path.toLowerCase() === focus.toLowerCase());
+    if (group && box.current) box.current.scrollTop = group.top;
+    onFocused?.();
+  }, [focus, groups]);
 
   const expand = (file: PatchFile, row: Extract<Row, { kind: 'gap' }>) => {
     const key = runKey(file.path, row.at);

@@ -2,9 +2,11 @@
  * The Diff view: a patch read out of a repository the person gave the app,
  * in one of the three scopes `git` answers, with the branches a comparison
  * may use. The picker offers the repositories in the folders the person
- * gave the app, and the pick of another. Rows a person comments on become
- * chips on the chats on screen, which the next message there carries; a
- * comment whose rows moved in a fresh read is let go.
+ * gave the app, and the pick of another. The window may open the view at
+ * a file, whose repository's working tree it then reads, with that file's
+ * change at the top. Rows a person comments on become chips on the chats
+ * on screen, which the next message there carries; a comment whose rows
+ * moved in a fresh read is let go.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { DiffView, parsePatch } from './DiffView.tsx';
@@ -26,6 +28,13 @@ function scopeLabel(source: DiffSource): string {
 
 /** A path's last segment. */
 const baseName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+
+/** A path with forward slashes. */
+const slashed = (path: string) => path.replace(/\\/g, '/');
+
+/** A file's path inside its repository, as `git` names it. */
+const insideOf = (root: string, path: string) =>
+  slashed(path).slice(slashed(root).replace(/\/$/, '').length + 1);
 
 /** The changed files a patch leaves out, in words. */
 function hiddenWords(count: number): string {
@@ -103,6 +112,35 @@ export function Diff({ host }: { host: Host }) {
       }),
     [host],
   );
+
+  /** The file whose change comes to the top once its patch shows, as
+   *  `git` names it inside its repository. */
+  const [focus, setFocus] = useState<string | null>(null);
+
+  /** Reads the working tree of the repository of a file the window opened
+   *  the view at, with the folders the app was given since, and brings
+   *  the file's change to the top. */
+  const reveal = async (path: string) => {
+    let repo: Repo | null;
+    try {
+      repo = await host.repo(path.replace(/[\\/][^\\/]*$/, ''));
+    } catch (e) {
+      setDiff(null);
+      setRepoError(wordsOf(e));
+      return;
+    }
+    if (!repo) return;
+    setDiff({ root: repo.root, scope: 'working' });
+    setFocus(insideOf(repo.root, path));
+    setAsked((n) => n + 1);
+  };
+  const revealRef = useRef(reveal);
+  revealRef.current = reveal;
+  useEffect(() => {
+    host.onRevealed((path) => void revealRef.current(path));
+    const opened = host.revealed();
+    if (opened !== null) void revealRef.current(opened);
+  }, [host]);
 
   useEffect(() => {
     let live = true;
@@ -296,6 +334,7 @@ export function Diff({ host }: { host: Host }) {
           {read.hidden > 0 && <span className="hs-panel-warning">{hiddenWords(read.hidden)}</span>}
           <DiffView
             patch={read.patch}
+            {...(focus !== null && { focus, onFocused: () => setFocus(null) })}
             loadFile={loadFile}
             onComment={(selection) => {
               const made = commentOn(diff.root, scopeLabel(diff), selection);

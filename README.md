@@ -40,6 +40,12 @@ and what `git` says about the repositories in them
 repository only when its top lies inside a folder the person gave the
 app, because `git` reads all of it.
 
+The view `shows` changes: a file a turn changed in the working tree of a
+git repository opens here, on the address `/?path=<absolute path>`,
+which the view reads as `openai/deepLink`. It shows the working tree of
+that repository with the file's change at the top; Hearthscale gives the
+app the repository before it opens the view.
+
 A run of rows the person comments on becomes a chip on the chats on
 screen, through `ui/update-model-context`, and the next message sent
 there carries it. A fresh read lets go of a comment whose rows moved.

@@ -46,8 +46,23 @@ export interface Patch {
 /** One MCP content block of the view's context. */
 export type ContextBlock = Record<string, unknown> & { type: string };
 
+/** The file an address names, `/?path=<absolute path>`; null for an
+ *  address without one. */
+function pathOf(link: unknown): string | null {
+  const url = (link as { url?: unknown } | undefined)?.url;
+  if (typeof url !== 'string') return null;
+  return new URL(url, 'https://diff.invalid').searchParams.get('path');
+}
+
 export class Host {
-  constructor(private readonly app: App) {}
+  /** What hears each change of the host context. */
+  private readonly listeners: ((changed: Record<string, unknown>) => void)[] = [];
+
+  constructor(private readonly app: App) {
+    app.onhostcontextchanged = (changed) => {
+      for (const listener of this.listeners) listener(changed);
+    };
+  }
 
   /** One request of the host, its result whole; a refusal rejects with
    *  the host's words. */
@@ -119,9 +134,29 @@ export class Host {
 
   /** Calls `fn` each time the host says what the chats still hold. */
   onHeld(fn: () => void): void {
-    this.app.onhostcontextchanged = (changed) => {
+    this.listeners.push((changed) => {
       if ('openai/modelContext' in changed) fn();
-    };
+    });
+  }
+
+  /** The repository a folder lies in; null outside one. */
+  async repo(path: string): Promise<Repo | null> {
+    return (await this.call<{ repo: Repo | null }>('hearthscale/vcs/repo', { path })).repo;
+  }
+
+  /** The file whose change the window opened the view at, such as a file
+   *  a turn changed; null when it opened on none. */
+  revealed(): string | null {
+    return pathOf(this.app.getHostContext()?.['openai/deepLink']);
+  }
+
+  /** Calls `fn` with each file the window opens the view at while it
+   *  shows. */
+  onRevealed(fn: (path: string) => void): void {
+    this.listeners.push((changed) => {
+      const path = pathOf(changed['openai/deepLink']);
+      if (path !== null) fn(path);
+    });
   }
 }
 
