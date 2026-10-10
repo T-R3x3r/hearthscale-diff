@@ -15,6 +15,7 @@
  * geometry are one number.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { wordsOf } from './host.ts';
 import { Icon } from './kit.tsx';
 
 export interface DiffLine {
@@ -342,10 +343,7 @@ export function DiffView({ patch, focus, onFocused, loadFile, onComment }: DiffV
           });
         setRuns((was) => new Map(was).set(key, lines));
       },
-      (error: unknown) =>
-        setRuns((was) =>
-          new Map(was).set(key, error instanceof Error ? error.message : String(error)),
-        ),
+      (error: unknown) => setRuns((was) => new Map(was).set(key, wordsOf(error))),
     );
   };
 
