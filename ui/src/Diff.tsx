@@ -8,11 +8,18 @@
  * on screen, which the next message there carries; a comment whose rows
  * moved in a fresh read is let go.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react';
 import { DiffView, parsePatch } from './DiffView.tsx';
 import { wordsOf, type DiffSource, type Host, type Patch, type Refs, type Repo } from './host.ts';
 import { Icon, MDivider, MItem, StripButton } from './kit.tsx';
 import { commentOn, reviewBlock, survives, type ReviewComment } from './review.ts';
+import { safeTriangle } from './safeTriangle.ts';
 
 const SCOPE_LABEL: Record<DiffSource['scope'], string> = {
   working: 'Working tree',
@@ -64,7 +71,7 @@ function BarChoice({
 }: {
   label: string;
   open: boolean;
-  onClick: () => void;
+  onClick: (e: ReactMouseEvent<HTMLElement>) => void;
 }) {
   return (
     <span
@@ -74,6 +81,29 @@ function BarChoice({
       <span className="hs-panel-branch-name">{label}</span>
       <Icon name="arrow-down-s-line" size={10} className="hs-panel-fixed-icon" />
     </span>
+  );
+}
+
+/** The list a bar choice opens, under it. It stays open while the pointer
+ *  is on the bar choice, on the list or on the way between them, and
+ *  closes when the pointer is anywhere else. */
+function PickerList({
+  trigger,
+  onLeave,
+  children,
+}: {
+  trigger: HTMLElement;
+  onLeave: () => void;
+  children: ReactNode;
+}) {
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => safeTriangle(trigger, () => list.current!, onLeave), [trigger]);
+  return (
+    <div className="hs-panel-picker-popover">
+      <div ref={list} className="hs-menu hs-panel-menu hs-panel-action-menu">
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -90,7 +120,7 @@ export function Diff({ host }: { host: Host }) {
   const [diff, setDiff] = useState<DiffSource | null>(null);
   const [read, setRead] = useState<Patch | { error: string } | null>(null);
   const [refs, setRefs] = useState<Refs | null>(null);
-  const [menu, setMenu] = useState<'repo' | 'scope' | null>(null);
+  const [menu, setMenu] = useState<{ kind: 'repo' | 'scope'; trigger: HTMLElement } | null>(null);
   const [asked, setAsked] = useState(0);
   const [comments, setComments] = useState<ReviewComment[]>([]);
   const held = useRef(comments);
@@ -219,78 +249,78 @@ export function Diff({ host }: { host: Host }) {
           <span className="hs-browser-menu-anchor">
             <BarChoice
               label={baseName(diff.root)}
-              open={menu === 'repo'}
-              onClick={() => setMenu(menu === 'repo' ? null : 'repo')}
+              open={menu?.kind === 'repo'}
+              onClick={(e) =>
+                setMenu(menu?.kind === 'repo' ? null : { kind: 'repo', trigger: e.currentTarget })
+              }
             />
-            {menu === 'repo' && (
-              <div className="hs-panel-picker-popover" onMouseLeave={() => setMenu(null)}>
-                <div className="hs-menu hs-panel-menu hs-panel-action-menu">
-                  {(repos ?? []).map((repo) => (
-                    <MItem
-                      key={repo.root}
-                      label={baseName(repo.root)}
-                      sub={repo.branch || repo.root}
-                      selected={repo.root === diff.root}
-                      onClick={() => {
-                        setMenu(null);
-                        setDiff({
-                          root: repo.root,
-                          scope: diff.scope,
-                          ...(diff.base && { base: diff.base }),
-                        });
-                      }}
-                    />
-                  ))}
-                  <MDivider />
+            {menu?.kind === 'repo' && (
+              <PickerList trigger={menu.trigger} onLeave={() => setMenu(null)}>
+                {(repos ?? []).map((repo) => (
                   <MItem
-                    icon={<Icon name="folder-open-line" size={14} />}
-                    label="Choose a repository"
-                    onClick={() => void pick()}
+                    key={repo.root}
+                    label={baseName(repo.root)}
+                    sub={repo.branch || repo.root}
+                    selected={repo.root === diff.root}
+                    onClick={() => {
+                      setMenu(null);
+                      setDiff({
+                        root: repo.root,
+                        scope: diff.scope,
+                        ...(diff.base && { base: diff.base }),
+                      });
+                    }}
                   />
-                </div>
-              </div>
+                ))}
+                <MDivider />
+                <MItem
+                  icon={<Icon name="folder-open-line" size={14} />}
+                  label="Choose a repository"
+                  onClick={() => void pick()}
+                />
+              </PickerList>
             )}
           </span>
           <span className="hs-browser-menu-anchor">
             <BarChoice
               label={scopeLabel(diff)}
-              open={menu === 'scope'}
-              onClick={() => setMenu(menu === 'scope' ? null : 'scope')}
+              open={menu?.kind === 'scope'}
+              onClick={(e) =>
+                setMenu(menu?.kind === 'scope' ? null : { kind: 'scope', trigger: e.currentTarget })
+              }
             />
-            {menu === 'scope' && (
-              <div className="hs-panel-picker-popover" onMouseLeave={() => setMenu(null)}>
-                <div className="hs-menu hs-panel-menu hs-panel-action-menu">
+            {menu?.kind === 'scope' && (
+              <PickerList trigger={menu.trigger} onLeave={() => setMenu(null)}>
+                <MItem
+                  label={SCOPE_LABEL.working}
+                  selected={diff.scope === 'working'}
+                  onClick={() => {
+                    setMenu(null);
+                    setDiff({ root: diff.root, scope: 'working' });
+                  }}
+                />
+                <MItem
+                  label={SCOPE_LABEL.staged}
+                  selected={diff.scope === 'staged'}
+                  onClick={() => {
+                    setMenu(null);
+                    setDiff({ root: diff.root, scope: 'staged' });
+                  }}
+                />
+                <MDivider />
+                {(refs?.branches ?? []).map((branch) => (
                   <MItem
-                    label={SCOPE_LABEL.working}
-                    selected={diff.scope === 'working'}
+                    key={branch}
+                    label={`${SCOPE_LABEL.branch} ${branch}`}
+                    selected={diff.scope === 'branch' && diff.base === branch}
+                    disabled={branch === refs?.current}
                     onClick={() => {
                       setMenu(null);
-                      setDiff({ root: diff.root, scope: 'working' });
+                      setDiff({ root: diff.root, scope: 'branch', base: branch });
                     }}
                   />
-                  <MItem
-                    label={SCOPE_LABEL.staged}
-                    selected={diff.scope === 'staged'}
-                    onClick={() => {
-                      setMenu(null);
-                      setDiff({ root: diff.root, scope: 'staged' });
-                    }}
-                  />
-                  <MDivider />
-                  {(refs?.branches ?? []).map((branch) => (
-                    <MItem
-                      key={branch}
-                      label={`${SCOPE_LABEL.branch} ${branch}`}
-                      selected={diff.scope === 'branch' && diff.base === branch}
-                      disabled={branch === refs?.current}
-                      onClick={() => {
-                        setMenu(null);
-                        setDiff({ root: diff.root, scope: 'branch', base: branch });
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
+                ))}
+              </PickerList>
             )}
           </span>
           <span className="hs-flex-spacer" />
