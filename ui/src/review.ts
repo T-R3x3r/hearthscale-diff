@@ -18,7 +18,8 @@ export interface ReviewComment {
    *  looks for. */
   oldNo?: number;
   newNo?: number;
-  /** The quoted run as the block names it, `L120-L124`. */
+  /** The quoted run as the block names it: `L120-L124`, or `L120` for
+   *  rows that share one number. */
   range: string;
   /** The quoted rows, sign and all. */
   lines: string[];
@@ -35,6 +36,13 @@ function lineNo(line: DiffLine): number {
   return line.newNo ?? line.oldNo ?? 0;
 }
 
+/** The run from one row to another as the block names it. */
+function rangeOf(first: DiffLine, last: DiffLine): string {
+  const from = lineNo(first);
+  const to = lineNo(last);
+  return from === to ? `L${from}` : `L${from}-L${to}`;
+}
+
 export function commentOn(root: string, section: string, selection: DiffSelection): ReviewComment {
   const first = selection.lines[0]!;
   const last = selection.lines[selection.lines.length - 1]!;
@@ -45,7 +53,7 @@ export function commentOn(root: string, section: string, selection: DiffSelectio
     header: selection.header,
     ...(first.oldNo !== undefined && { oldNo: first.oldNo }),
     ...(first.newNo !== undefined && { newNo: first.newNo }),
-    range: `L${lineNo(first)}-L${lineNo(last)}`,
+    range: rangeOf(first, last),
     lines: selection.lines.map(signed),
   };
 }
@@ -73,7 +81,7 @@ function stillAnchored(patch: string, comment: ReviewComment): boolean {
   const at = rows.findIndex((row) => row.oldNo === comment.oldNo && row.newNo === comment.newNo);
   if (at === -1) return false;
   const last = rows[at + comment.lines.length - 1];
-  if (!last || `L${lineNo(rows[at]!)}-L${lineNo(last)}` !== comment.range) return false;
+  if (!last || rangeOf(rows[at]!, last) !== comment.range) return false;
   return comment.lines.every((line, n) => {
     const row = rows[at + n];
     return row !== undefined && signed(row) === line;
