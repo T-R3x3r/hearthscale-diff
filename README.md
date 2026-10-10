@@ -1,70 +1,16 @@
 # Diff
 
-Read the changes of a git repository you choose, and comment on lines for
-the chat.
+Read the changes in a Git repository on your computer, and point an agent at the exact lines you mean.
 
-Diff is an ordinary Hearthscale app. Nothing in the platform knows its
-name; it installs from the Marketplace like any other app.
+## Get started
 
-## Working on it
+Open Diff from the rail, best beside a conversation, and choose **Choose a repository**: pick the repository's top folder. The menu beside the repository picks what to compare: **Working tree** for the changes you have not staged, **Staged**, or **Compared with** a branch. Click a file's name to fold it, and **unmodified lines** to see more of the file.
 
-With a Hearthscale platform running on this machine:
+To comment on a change, click a line, **Shift-click** another line of the same file to select the lines between, and choose **Comment**. The lines wait above the composer as a chip with the file's name and line numbers; type what you want and send it.
 
-```
-hearthscale dev .
-```
+When an agent changes a file in a Git repository, choose the file in the conversation and its change opens here, at the top.
 
-links this folder into the running platform, picks up every change, and
-asks once in the window before any code runs.
+## What Diff asks for
 
-## The view
-
-Diff shows one view, `diff`, which fills its tab: the patch of a
-repository in one of three scopes (the working tree, what is staged, or
-the branch compared with another), with the files folded and unmodified
-runs opened in place. Its source is React under `ui/src`, drawn with the
-`hs-*` classes and `ri-*` icons of the kit that Hearthscale loads into
-every view. Its build writes `views/diff.js`, the one file the package
-carries for it, so the file is committed with every change to the source:
-
-```
-cd ui
-pnpm install
-pnpm build
-```
-
-The view reaches the platform only through `roots`, the one extension
-`uses` names: the folders the person gave the app, the pick of another,
-and what `git` says about the repositories in them
-(`hearthscale/vcs/repo`, `refs`, `diff` and `file`). The platform reads a
-repository only when its top lies inside a folder the person gave the
-app, because `git` reads all of it.
-
-The view `shows` changes: a file a turn changed in the working tree of a
-git repository opens here, on the address `/?path=<absolute path>`,
-which the view reads as `openai/deepLink`. It shows the working tree of
-that repository with the file's change at the top; Hearthscale gives the
-app the repository before it opens the view.
-
-A run of rows the person comments on becomes a chip on the chats on
-screen, through `ui/update-model-context`, and the next message sent
-there carries it. A fresh read lets go of a comment whose rows moved.
-
-`ui/pnpm-workspace.yaml` keeps the build its own project: without it,
-pnpm joins any workspace in a folder above.
-
-## Releasing
-
-Install the Hearthscale registry's GitHub App on this repository once. Then
-every release whose tag equals `version` in `app.json` is picked up by the
-Marketplace.
-
-```
-hearthscale pack .
-```
-
-builds the package to attach to the release.
-
-## Licence
-
-MIT. See `LICENSE`.
+- **The repositories you choose.** Diff reads only the repositories inside the folders you give it, and changes nothing in them. Changes inside a folder that holds credentials are left out.
+- **Git.** Diff reads with Git, which must be installed on your computer.
