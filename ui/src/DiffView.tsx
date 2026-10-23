@@ -6,15 +6,26 @@
  * the view shows on its header above the text — a patch is never dropped and
  * never guessed at.
  *
- * `<DiffView>` draws unified rows only: two gutters, a sticky header per
- * file, collapse from that header and from the toolbar, "N unmodified
- * lines" runs that expand in place, and a run of a hunk's own rows the user
- * selects to comment on. Rows are windowed per file with the same
- * prefix-sum recipe the sidebar and the file tree use, over the same height
- * constants the rows are painted at, so the scroll range and the rendered
- * geometry are one number.
+ * `<DiffView>` draws unified rows, two gutters each, or split rows, the old
+ * side beside the new: a sticky header per file, collapse from that header
+ * and from the toolbar, "N unmodified lines" runs that expand in place, and
+ * a run of a hunk's own rows the user selects to comment on. Each side of a
+ * hunk, and each run expanded, is coloured as one text in its file's
+ * language once the highlighter answers. Rows are windowed per file with the
+ * same prefix-sum recipe the sidebar and the file tree use, over the same
+ * height constants the rows are painted at, so the scroll range and the
+ * rendered geometry are one number; wrapped rows take the height of their
+ * text, and are all drawn.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react';
+import { highlightLines, languageOf, type Token } from './highlight.ts';
 import { wordsOf } from './host.ts';
 import { Icon } from './kit.tsx';
 
@@ -178,12 +189,18 @@ const OVERSCAN = 12;
 /** The width of one line-number gutter. */
 const GUTTER = 44;
 
+/** One hunk line or one line expanded out of an unmodified run. `at` is
+ *  its place among its file's hunk lines, and `header` the hunk it sits
+ *  under; a line expanded out of an unmodified run belongs to no hunk and
+ *  carries neither, which is what keeps a comment quoting the patch
+ *  alone. */
+type LineRow = { kind: 'line'; line: DiffLine; at?: number; header?: string };
+
 type Row =
-  /** `at` is the row's place among its file's hunk lines, and `header` the
-   *  hunk it sits under; a row expanded out of an unmodified run belongs to
-   *  no hunk and carries neither, which is what keeps a comment quoting the
-   *  patch alone. */
-  | { kind: 'line'; line: DiffLine; at?: number; header?: string }
+  | LineRow
+  /** A split row: a line of the old side beside a line of the new one,
+   *  either missing where the other side holds more. */
+  | { kind: 'pair'; left?: LineRow; right?: LineRow }
   /** An unmodified run before the hunk at `at`, starting at line `oldNo` of
    *  the old file and `newNo` of the new one. `refused` is why its text
    *  would not load. */
@@ -240,6 +257,74 @@ function rowsOf(file: PatchFile, runs: Map<string, Run>): Row[] {
   return rows;
 }
 
+/** Unified rows as split rows: a context line on both sides, and the
+ *  removed lines of a change beside its added ones. */
+function splitOf(rows: Row[]): Row[] {
+  const split: Row[] = [];
+  let removed: LineRow[] = [];
+  let added: LineRow[] = [];
+  const flush = () => {
+    for (let n = 0; n < Math.max(removed.length, added.length); n++) {
+      const left = removed[n];
+      const right = added[n];
+      split.push({ kind: 'pair', ...(left && { left }), ...(right && { right }) });
+    }
+    removed = [];
+    added = [];
+  };
+  for (const row of rows) {
+    if (row.kind === 'line' && row.line.kind === 'del') removed.push(row);
+    else if (row.kind === 'line' && row.line.kind === 'add') added.push(row);
+    else {
+      flush();
+      split.push(row.kind === 'line' ? { kind: 'pair', left: row, right: row } : row);
+    }
+  }
+  flush();
+  return split;
+}
+
+/** The colours of a file's lines: each side of each hunk and each run
+ *  expanded, read as one text, by line. */
+async function coloursOf(
+  file: PatchFile,
+  runs: Map<string, Run>,
+): Promise<Map<DiffLine, Token[]> | null> {
+  if (!languageOf(file.path)) return null;
+  const colours = new Map<DiffLine, Token[]>();
+  const paint = async (lines: DiffLine[]) => {
+    const tokens = await highlightLines(
+      file.path,
+      lines.map((line) => line.text),
+    );
+    lines.forEach((line, n) => {
+      const painted = tokens?.[n];
+      if (painted) colours.set(line, painted);
+    });
+  };
+  for (const [at, hunk] of file.hunks.entries()) {
+    const run = runs.get(runKey(file.path, at));
+    if (Array.isArray(run)) await paint(run);
+    await paint(hunk.lines.filter((line) => line.kind !== 'add'));
+    await paint(hunk.lines.filter((line) => line.kind !== 'del'));
+  }
+  return colours;
+}
+
+/** A line's text, in its colours once they are read. */
+function Text({ line, colours }: { line: DiffLine; colours: Map<DiffLine, Token[]> | undefined }) {
+  const tokens = colours?.get(line);
+  let text: ReactNode = line.text;
+  if (tokens) {
+    text = tokens.map((token, n) => (
+      <span key={n} className="hs-diff-tok" style={token.style}>
+        {token.text}
+      </span>
+    ));
+  }
+  return <span className="hs-diff-text">{text}</span>;
+}
+
 /** A run of one file's hunk rows, as the user selected them. */
 export interface DiffSelection {
   file: PatchFile;
@@ -261,13 +346,25 @@ export interface DiffViewProps {
   /** Takes the selected rows. Without it the rows do not select: a view
    *  nobody can comment through offers no selection. */
   onComment?: (selection: DiffSelection) => void;
+  /** The old side beside the new one, in place of unified rows. */
+  split: boolean;
+  /** Long lines wrap in place of scrolling. */
+  wrap: boolean;
+  /** Takes the person's choice of split and wrap from the bar. */
+  onLook: (look: { split: boolean; wrap: boolean }) => void;
 }
 
-/**
- * A patch, read. Unified rows only; split view, word wrap and syntax
- * colouring are not drawn here.
- */
-export function DiffView({ patch, focus, onFocused, loadFile, onComment }: DiffViewProps) {
+/** A patch, read: unified or split rows, wrapped or not, in colour. */
+export function DiffView({
+  patch,
+  focus,
+  onFocused,
+  loadFile,
+  onComment,
+  split,
+  wrap,
+  onLook,
+}: DiffViewProps) {
   const parsed = useMemo(() => parsePatch(patch), [patch]);
   const [runs, setRuns] = useState<Map<string, Run>>(new Map());
   const [shut, setShut] = useState<Set<string>>(new Set());
@@ -276,12 +373,31 @@ export function DiffView({ patch, focus, onFocused, loadFile, onComment }: DiffV
   const [pick, setPick] = useState<{ path: string; from: number; to: number } | null>(null);
   const box = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ top: 0, height: 0 });
+  /** The colours of each file's lines, by its path, once they are read. */
+  const [colours, setColours] = useState<Map<string, Map<DiffLine, Token[]>>>(new Map());
 
   useEffect(() => {
     setRuns(new Map());
     setShut(new Set());
     setPick(null);
+    setColours(new Map());
   }, [patch]);
+
+  // Each file is coloured in turn, again when one of its runs expands.
+  useEffect(() => {
+    if (parsed.kind !== 'files') return;
+    let live = true;
+    void (async () => {
+      for (const file of parsed.files) {
+        const read = await coloursOf(file, runs).catch(() => null);
+        if (!live) return;
+        if (read) setColours((was) => new Map(was).set(file.path, read));
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [parsed, runs]);
 
   useEffect(() => {
     const el = box.current;
@@ -308,7 +424,8 @@ export function DiffView({ patch, focus, onFocused, loadFile, onComment }: DiffV
     if (parsed.kind !== 'files') return [];
     let top = 0;
     return parsed.files.map((file) => {
-      const rows = shut.has(file.path) ? [] : rowsOf(file, runs);
+      const unified = shut.has(file.path) ? [] : rowsOf(file, runs);
+      const rows = split ? splitOf(unified) : unified;
       const tops = [0];
       let body = 0;
       for (const row of rows) {
@@ -319,7 +436,7 @@ export function DiffView({ patch, focus, onFocused, loadFile, onComment }: DiffV
       top += FILE_H + body;
       return { file, rows, tops, body, top: at };
     });
-  }, [parsed, runs, shut]);
+  }, [parsed, runs, shut, split]);
 
   useEffect(() => {
     if (focus === undefined) return;
@@ -378,6 +495,7 @@ export function DiffView({ patch, focus, onFocused, loadFile, onComment }: DiffV
   return (
     <div
       className="hs-diff"
+      data-wrap={wrap ? 'true' : 'false'}
       style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
     >
       <div className="hs-diff-bar">
@@ -405,6 +523,18 @@ export function DiffView({ patch, focus, onFocused, loadFile, onComment }: DiffV
             )}
             <span
               className="hs-hovbox-ink hs-diff-act"
+              onClick={() => onLook({ split: !split, wrap })}
+            >
+              {split ? 'Unified' : 'Split'}
+            </span>
+            <span
+              className="hs-hovbox-ink hs-diff-act"
+              onClick={() => onLook({ split, wrap: !wrap })}
+            >
+              {wrap ? 'No wrap' : 'Wrap'}
+            </span>
+            <span
+              className="hs-hovbox-ink hs-diff-act"
               onClick={() => setShut(allShut ? new Set() : new Set(files.map((f) => f.path)))}
             >
               {allShut ? 'Expand all' : 'Collapse all'}
@@ -417,16 +547,43 @@ export function DiffView({ patch, focus, onFocused, loadFile, onComment }: DiffV
         <pre className="hs-scroll hs-diff-raw">{parsed.text}</pre>
       ) : (
         <div ref={box} className="hs-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-          <div style={{ minWidth: 'max-content' }}>
+          <div style={split || wrap ? undefined : { minWidth: 'max-content' }}>
             {groups.map((group) => {
               const from = view.top - (group.top + FILE_H);
-              const { first, last } = bandOf(
-                group.tops,
-                group.rows.length,
-                from,
-                from + view.height,
-              );
+              const { first, last } = wrap
+                ? { first: 0, last: group.rows.length }
+                : bandOf(group.tops, group.rows.length, from, from + view.height);
               const file = group.file;
+              const painted = colours.get(file.path);
+              /** Whether a hunk line is in the selected run. */
+              const chosen = (at: number | undefined) =>
+                pick?.path === file.path &&
+                at !== undefined &&
+                at >= Math.min(pick.from, pick.to) &&
+                at <= Math.max(pick.from, pick.to);
+              /** What a press on a row with a hunk line at `at` does: it
+               *  selects the line, or stretches the run to it. */
+              const press = (at: number | undefined) =>
+                onComment && at !== undefined
+                  ? (e: ReactMouseEvent) => {
+                      // A shift-click would otherwise paint the browser's
+                      // own text selection over the run.
+                      if (e.shiftKey) e.preventDefault();
+                      select(file.path, at, e.shiftKey);
+                    }
+                  : undefined;
+              const side = (row: LineRow | undefined, kind: 'old' | 'new') =>
+                row ? (
+                  <span className="hs-diff-side" data-kind={row.line.kind}>
+                    <span className="hs-diff-no" style={{ width: GUTTER }}>
+                      {(kind === 'old' ? row.line.oldNo : row.line.newNo) ?? ''}
+                    </span>
+                    <span className="hs-diff-sign">{SIGN[row.line.kind]}</span>
+                    <Text line={row.line} colours={painted} />
+                  </span>
+                ) : (
+                  <span className="hs-diff-side" data-kind="none" />
+                );
               return (
                 <div key={file.path} style={{ position: 'relative' }}>
                   <div
@@ -453,46 +610,49 @@ export function DiffView({ patch, focus, onFocused, loadFile, onComment }: DiffV
                     <Counts additions={file.additions} deletions={file.deletions} />
                   </div>
                   {first > 0 && <div style={{ height: group.tops[first] ?? 0 }} />}
-                  {group.rows.slice(first, last).map((row, at) =>
-                    row.kind === 'gap' ? (
-                      <div
-                        key={`gap-${row.at}`}
-                        className="hs-diff-gap"
-                        onClick={() => expand(file, row)}
-                      >
-                        <span style={{ width: GUTTER * 2, flex: 'none' }} />
-                        <span style={{ flex: 'none' }}>
-                          {row.refused ??
-                            `${row.count} unmodified ${row.count === 1 ? 'line' : 'lines'}`}
-                        </span>
-                        <span className="hs-diff-hunk">{row.header}</span>
-                      </div>
-                    ) : (
+                  {group.rows.slice(first, last).map((row, at) => {
+                    if (row.kind === 'gap') {
+                      return (
+                        <div
+                          key={`gap-${row.at}`}
+                          className="hs-diff-gap"
+                          onClick={() => expand(file, row)}
+                        >
+                          <span style={{ width: GUTTER * 2, flex: 'none' }} />
+                          <span style={{ flex: 'none' }}>
+                            {row.refused ??
+                              `${row.count} unmodified ${row.count === 1 ? 'line' : 'lines'}`}
+                          </span>
+                          <span className="hs-diff-hunk">{row.header}</span>
+                        </div>
+                      );
+                    }
+                    if (row.kind === 'pair') {
+                      const ats = [row.left?.at, row.right?.at].filter(
+                        (n): n is number => n !== undefined,
+                      );
+                      const lowest = ats.length > 0 ? Math.min(...ats) : undefined;
+                      return (
+                        <div
+                          key={`${first + at}`}
+                          className="hs-diff-split"
+                          data-sel={ats.some(chosen) ? '1' : '0'}
+                          onMouseDown={press(lowest)}
+                          style={press(lowest) ? { cursor: 'pointer' } : undefined}
+                        >
+                          {side(row.left, 'old')}
+                          {side(row.right, 'new')}
+                        </div>
+                      );
+                    }
+                    return (
                       <div
                         key={`${first + at}`}
                         className="hs-diff-row"
                         data-kind={row.line.kind}
-                        data-sel={
-                          pick?.path === file.path &&
-                          row.at !== undefined &&
-                          row.at >= Math.min(pick.from, pick.to) &&
-                          row.at <= Math.max(pick.from, pick.to)
-                            ? '1'
-                            : '0'
-                        }
-                        onMouseDown={
-                          onComment && row.at !== undefined
-                            ? (e) => {
-                                // A shift-click would otherwise paint the
-                                // browser's own text selection over the run.
-                                if (e.shiftKey) e.preventDefault();
-                                select(file.path, row.at!, e.shiftKey);
-                              }
-                            : undefined
-                        }
-                        style={
-                          onComment && row.at !== undefined ? { cursor: 'pointer' } : undefined
-                        }
+                        data-sel={chosen(row.at) ? '1' : '0'}
+                        onMouseDown={press(row.at)}
+                        style={press(row.at) ? { cursor: 'pointer' } : undefined}
                       >
                         <span className="hs-diff-no" style={{ width: GUTTER }}>
                           {row.line.oldNo ?? ''}
@@ -501,10 +661,10 @@ export function DiffView({ patch, focus, onFocused, loadFile, onComment }: DiffV
                           {row.line.newNo ?? ''}
                         </span>
                         <span className="hs-diff-sign">{SIGN[row.line.kind]}</span>
-                        <span className="hs-diff-text">{row.line.text}</span>
+                        <Text line={row.line} colours={painted} />
                       </div>
-                    ),
-                  )}
+                    );
+                  })}
                   {last < group.rows.length && (
                     <div style={{ height: group.body - (group.tops[last] ?? 0) }} />
                   )}

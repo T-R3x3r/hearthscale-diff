@@ -3,12 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && vite build --mode pull",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "shiki": "4.4.3"
   },
   "devDependencies": {
     "@modelcontextprotocol/ext-apps": "1.7.5",

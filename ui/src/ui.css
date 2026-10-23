@@ -21,3 +21,26 @@
   transform: var(--press);
   opacity: var(--press-fade);
 }
+
+/* The pull-request view: the branch's commits beside the change. */
+.pull-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.pull-commits {
+  flex: none;
+  box-sizing: border-box;
+  width: calc(var(--space) * 70);
+  padding: var(--space);
+  overflow: auto;
+  border-right: var(--bw) solid var(--line);
+}
+
+.pull-change {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}

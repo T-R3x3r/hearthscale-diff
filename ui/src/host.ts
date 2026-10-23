@@ -2,8 +2,9 @@
  * What the view asks of Hearthscale, typed: the folders the person gave
  * the app (`roots`), and what `git` says about the repositories in them,
  * each read confined by the platform to those folders and refused in
- * words; and the review comments the view adds to the context of the
- * chats on screen, which show as removable chips.
+ * words; the review comments the view adds to the context of the chats on
+ * screen, which show as removable chips; and how the tab draws its rows,
+ * which the tab keeps.
  */
 import { App, McpUiMessageResultSchema } from '@modelcontextprotocol/ext-apps';
 
@@ -26,12 +27,30 @@ export interface Refs {
   branches: string[];
 }
 
-/** What a diff reads: a repository, one of the three scopes `git`
- *  answers, and the base a `branch` scope compares against. */
+/** What a diff reads: a repository, one of the scopes `git` answers, the
+ *  base a `branch` scope compares against, and the commit a `commit` scope
+ *  reads by its full id. */
 export interface DiffSource {
   root: string;
-  scope: 'working' | 'staged' | 'branch';
+  scope: 'working' | 'staged' | 'branch' | 'commit';
   base?: string;
+  commit?: string;
+}
+
+/** One commit as a branch's log lists it. */
+export interface Commit {
+  sha: string;
+  subject: string;
+  author: string;
+  /** An ISO 8601 date. */
+  date: string;
+}
+
+/** The commits of a branch that a base does not hold, newest first, and
+ *  whether the branch holds more than the log answers. */
+export interface Log {
+  commits: Commit[];
+  truncated: boolean;
 }
 
 export interface Patch {
@@ -41,6 +60,12 @@ export interface Patch {
   /** How many changed files the patch leaves out because they lie in
    *  folders that hold credentials or another program's secrets. */
   hidden: number;
+}
+
+/** How the rows are drawn: split or unified, wrapped or not. */
+export interface Look {
+  split: boolean;
+  wrap: boolean;
 }
 
 /** One MCP content block of the view's context. */
@@ -103,6 +128,11 @@ export class Host {
     return this.call('hearthscale/vcs/refs', { root });
   }
 
+  /** The commits of the current branch that `base` does not hold. */
+  log(root: string, base: string): Promise<Log> {
+    return this.call('hearthscale/vcs/log', { root, base });
+  }
+
   diff(source: DiffSource): Promise<Patch> {
     return this.call('hearthscale/vcs/diff', { ...source });
   }
@@ -113,6 +143,7 @@ export class Host {
       await this.call<{ text: string }>('hearthscale/vcs/file', {
         root: source.root,
         scope: source.scope,
+        ...(source.commit && { commit: source.commit }),
         path,
       })
     ).text;
@@ -142,6 +173,18 @@ export class Host {
   /** The repository a folder lies in; null outside one. */
   async repo(path: string): Promise<Repo | null> {
     return (await this.call<{ repo: Repo | null }>('hearthscale/vcs/repo', { path })).repo;
+  }
+
+  /** How the tab drew its rows last; unified and not wrapped before the
+   *  person chose. */
+  look(): Look {
+    const kept = this.app.getHostContext()?.['hearthscale/widgetState'] as Partial<Look> | null;
+    return { split: kept?.split === true, wrap: kept?.wrap === true };
+  }
+
+  /** Keeps how the tab draws its rows. */
+  async setLook(look: Look): Promise<void> {
+    await this.call('hearthscale/ui/set-widget-state', { state: look });
   }
 
   /** The file whose change the window opened the view at, such as a file

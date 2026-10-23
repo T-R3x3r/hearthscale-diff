@@ -6,6 +6,7 @@
  * message can answer several of them.
  */
 import { parsePatch, type DiffLine, type DiffSelection } from './DiffView.tsx';
+import type { DiffSource } from './host.ts';
 
 export interface ReviewComment {
   /** The repository the patch was read in, and the path that patch names. */
@@ -100,4 +101,29 @@ export function survives(
   if (comment.root !== source.root) return true;
   if (source.paths?.length && !source.paths.includes(comment.file)) return true;
   return stillAnchored(patch, comment);
+}
+
+/** A path's last segment. */
+export const baseName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+
+/** A comment as the chip that carries it. */
+export const blockOf = (comment: ReviewComment) => ({
+  type: 'text',
+  text: reviewBlock(comment),
+  _meta: { 'openai/title': `${baseName(comment.file)} ${comment.range}` },
+});
+
+/** A scope in the words the toolbar shows, which a comment names as its
+ *  section. */
+export function scopeLabel(source: DiffSource): string {
+  switch (source.scope) {
+    case 'working':
+      return 'Working tree';
+    case 'staged':
+      return 'Staged';
+    case 'branch':
+      return `Compared with ${source.base}`;
+    case 'commit':
+      return `Commit ${source.commit?.slice(0, 7)}`;
+  }
 }

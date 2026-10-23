@@ -8,33 +8,12 @@
  * on screen, which the next message there carries; a comment whose rows
  * moved in a fresh read is let go.
  */
-import {
-  useEffect,
-  useRef,
-  useState,
-  type MouseEvent as ReactMouseEvent,
-  type ReactNode,
-} from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DiffView, parsePatch } from './DiffView.tsx';
+import { useLook, useReview } from './hooks.ts';
 import { wordsOf, type DiffSource, type Host, type Patch, type Refs, type Repo } from './host.ts';
-import { Icon, MDivider, MItem, StripButton } from './kit.tsx';
-import { commentOn, reviewBlock, survives, type ReviewComment } from './review.ts';
-import { safeTriangle } from './safeTriangle.ts';
-
-const SCOPE_LABEL: Record<DiffSource['scope'], string> = {
-  working: 'Working tree',
-  staged: 'Staged',
-  branch: 'Compared with',
-};
-
-function scopeLabel(source: DiffSource): string {
-  return source.scope === 'branch'
-    ? `${SCOPE_LABEL.branch} ${source.base}`
-    : SCOPE_LABEL[source.scope];
-}
-
-/** A path's last segment. */
-const baseName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+import { BarChoice, DiffNote, Icon, MDivider, MItem, PickerList, StripButton } from './kit.tsx';
+import { baseName, commentOn, scopeLabel } from './review.ts';
 
 /** A path with forward slashes. */
 const slashed = (path: string) => path.replace(/\\/g, '/');
@@ -50,70 +29,6 @@ function hiddenWords(count: number): string {
     : `${count} changed files are not shown: they are in folders that hold credentials or another program’s secrets.`;
 }
 
-/** A sentence in the middle of the view: an empty state, or why there is
- *  nothing to read. */
-function DiffNote({ text, children }: { text: string; children?: ReactNode }) {
-  return (
-    <div className="hs-rview hs-panel-refusal">
-      <div className="hs-panel-refusal-content">
-        <Icon name="git-branch-line" size={20} className="hs-panel-muted-icon" />
-        <span className="hs-panel-refusal-text">{text}</span>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function BarChoice({
-  label,
-  open,
-  onClick,
-}: {
-  label: string;
-  open: boolean;
-  onClick: (e: ReactMouseEvent<HTMLElement>) => void;
-}) {
-  return (
-    <span
-      onClick={onClick}
-      className={`hs-hovbox-ink hs-inkmut hs-panel-picker${open ? ' hs-boxsel' : ''}`}
-    >
-      <span className="hs-panel-branch-name">{label}</span>
-      <Icon name="arrow-down-s-line" size={10} className="hs-panel-fixed-icon" />
-    </span>
-  );
-}
-
-/** The list a bar choice opens, under it. It stays open while the pointer
- *  is on the bar choice, on the list or on the way between them, and
- *  closes when the pointer is anywhere else. */
-function PickerList({
-  trigger,
-  onLeave,
-  children,
-}: {
-  trigger: HTMLElement;
-  onLeave: () => void;
-  children: ReactNode;
-}) {
-  const list = useRef<HTMLDivElement>(null);
-  useEffect(() => safeTriangle(trigger, () => list.current!, onLeave), [trigger]);
-  return (
-    <div className="hs-panel-picker-popover">
-      <div ref={list} className="hs-menu hs-panel-menu hs-panel-action-menu">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-/** A comment as the chip that carries it. */
-const blockOf = (comment: ReviewComment) => ({
-  type: 'text',
-  text: reviewBlock(comment),
-  _meta: { 'openai/title': `${baseName(comment.file)} ${comment.range}` },
-});
-
 export function Diff({ host }: { host: Host }) {
   const [repos, setRepos] = useState<Repo[] | null>(null);
   const [repoError, setRepoError] = useState<string | null>(null);
@@ -122,26 +37,8 @@ export function Diff({ host }: { host: Host }) {
   const [refs, setRefs] = useState<Refs | null>(null);
   const [menu, setMenu] = useState<{ kind: 'repo' | 'scope'; trigger: HTMLElement } | null>(null);
   const [asked, setAsked] = useState(0);
-  const [comments, setComments] = useState<ReviewComment[]>([]);
-  const held = useRef(comments);
-  held.current = comments;
-
-  /** The comments the chats hold, which the view's context becomes. */
-  const keep = (next: ReviewComment[]) => {
-    setComments(next);
-    void host.context(next.map(blockOf));
-  };
-
-  // A chip the person removed, or a message that took the chips, lets
-  // the comment go.
-  useEffect(
-    () =>
-      host.onHeld(() => {
-        const texts = new Set(host.held().map((block) => block.text));
-        setComments((all) => all.filter((c) => texts.has(reviewBlock(c))));
-      }),
-    [host],
-  );
+  const review = useReview(host);
+  const [look, setLook] = useLook(host);
 
   /** The file whose change comes to the top once its patch shows, as
    *  `git` names it inside its repository. */
@@ -205,8 +102,7 @@ export function Diff({ host }: { host: Host }) {
       (answer) => {
         if (!live) return;
         setRead(answer);
-        const kept = held.current.filter((c) => survives(answer.patch, diff, c));
-        if (kept.length !== held.current.length) keep(kept);
+        review.prune(answer.patch, diff);
       },
       (e: unknown) => live && setRead({ error: wordsOf(e) }),
     );
@@ -292,7 +188,7 @@ export function Diff({ host }: { host: Host }) {
             {menu?.kind === 'scope' && (
               <PickerList trigger={menu.trigger} onLeave={() => setMenu(null)}>
                 <MItem
-                  label={SCOPE_LABEL.working}
+                  label={scopeLabel({ root: diff.root, scope: 'working' })}
                   selected={diff.scope === 'working'}
                   onClick={() => {
                     setMenu(null);
@@ -300,7 +196,7 @@ export function Diff({ host }: { host: Host }) {
                   }}
                 />
                 <MItem
-                  label={SCOPE_LABEL.staged}
+                  label={scopeLabel({ root: diff.root, scope: 'staged' })}
                   selected={diff.scope === 'staged'}
                   onClick={() => {
                     setMenu(null);
@@ -311,7 +207,7 @@ export function Diff({ host }: { host: Host }) {
                 {(refs?.branches ?? []).map((branch) => (
                   <MItem
                     key={branch}
-                    label={`${SCOPE_LABEL.branch} ${branch}`}
+                    label={scopeLabel({ root: diff.root, scope: 'branch', base: branch })}
                     selected={diff.scope === 'branch' && diff.base === branch}
                     disabled={branch === refs?.current}
                     onClick={() => {
@@ -366,12 +262,10 @@ export function Diff({ host }: { host: Host }) {
             patch={read.patch}
             {...(focus !== null && { focus, onFocused: () => setFocus(null) })}
             loadFile={loadFile}
-            onComment={(selection) => {
-              const made = commentOn(diff.root, scopeLabel(diff), selection);
-              const same = (c: ReviewComment) =>
-                c.root === made.root && c.file === made.file && c.range === made.range;
-              keep([...comments.filter((c) => !same(c)), made]);
-            }}
+            split={look.split}
+            wrap={look.wrap}
+            onLook={setLook}
+            onComment={(selection) => review.add(commentOn(diff.root, scopeLabel(diff), selection))}
           />
         </>
       )}

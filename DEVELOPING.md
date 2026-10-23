@@ -18,13 +18,20 @@ asks once in the window before any code runs.
 
 ## The view
 
-Diff shows one view, `diff`, which fills its tab: the patch of a
+Diff shows two views, each filling its tab. `diff` is the patch of a
 repository in one of three scopes (the working tree, what is staged, or
 the branch compared with another), with the files folded and unmodified
-runs opened in place. Its source is React under `ui/src`, drawn with the
-`hs-*` classes and `ri-*` icons of the kit that Hearthscale loads into
-every view. Its build writes `views/diff.js`, the one file the package
-carries for it, so the file is committed with every change to the source:
+runs opened in place. `pull` reads the current branch as a pull request
+into a base: the commits the base does not hold (`hearthscale/vcs/log`),
+the change of the whole branch, and the change of one commit (the
+`commit` scope). Both draw their rows unified or split, wrapped or not,
+which the tab keeps in its widget state, and coloured by Shiki with the
+two GitHub themes, each side of a hunk read as one text. Their source is
+React under `ui/src`, drawn with the `hs-*` classes and `ri-*` icons of
+the kit that Hearthscale loads into every view. The build writes
+`views/diff.js` and, in the `pull` mode, `views/pull.js`, the files the
+package carries for them, so they are committed with every change to the
+source:
 
 ```sh
 cd ui
