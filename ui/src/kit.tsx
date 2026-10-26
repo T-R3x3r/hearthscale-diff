@@ -3,7 +3,16 @@
  * view: its `hs-*` classes, which give each part the look of the same part
  * in the shell, and the Remix Icon font with its `ri-*` classes.
  */
-import { useEffect, useRef, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react';
+import { createPortal } from 'react-dom';
 import { safeTriangle } from './safeTriangle.ts';
 
 /** A Remix Icon by its remixicon.com name, at a size in pixels, in the
@@ -80,6 +89,70 @@ export function MItem({
 /** A hairline between the groups of a menu. */
 export function MDivider() {
   return <div className="hs-menu-divider" />;
+}
+
+/** The distance of a tip from its mark, and from the edges of the page. */
+const TIP_OFFSET = 6;
+const TIP_PAD = 8;
+
+/** A tip floated over the page from its mark: under it from its left edge,
+ *  or over it where there is no room below, kept inside the page and never
+ *  cut by the box the mark sits in. */
+function FloatingTip({ anchor, text }: { anchor: HTMLElement; text: string }) {
+  const floating = useRef<HTMLDivElement>(null);
+  const [place, setPlace] = useState<CSSProperties>({ visibility: 'hidden' });
+  useLayoutEffect(() => {
+    const at = anchor.getBoundingClientRect();
+    const box = floating.current!.getBoundingClientRect();
+    let top = at.bottom + TIP_OFFSET;
+    if (top + box.height > innerHeight - TIP_PAD && at.top - TIP_OFFSET - box.height >= TIP_PAD) {
+      top = at.top - TIP_OFFSET - box.height;
+    }
+    const left = Math.max(TIP_PAD, Math.min(at.left, innerWidth - TIP_PAD - box.width));
+    setPlace({ left, top, visibility: 'visible' });
+  }, [anchor, text]);
+  return createPortal(
+    <div ref={floating} className="hs-menu-position hs-floating-tip" style={place}>
+      <span className="hs-tip hs-tooltip" data-sub="false">
+        <span className="hs-tooltip-title">{text}</span>
+      </span>
+    </div>,
+    document.body,
+  );
+}
+
+/** A row of a list, as the kit's link row draws it: the whole row is the
+ *  press, and its label is one title with no line under it. `current`
+ *  marks the row whose content shows; what else there is to know of it is
+ *  its tip, which a press closes until the pointer comes back. */
+export function ListPress({
+  label,
+  tip,
+  current,
+  onClick,
+}: {
+  label: string;
+  tip: string | null;
+  current: boolean;
+  onClick: () => void;
+}) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  return (
+    <button
+      type="button"
+      className="hs-setrow hs-link-row"
+      aria-current={current || undefined}
+      onClick={onClick}
+      onMouseEnter={(e) => setAnchor(e.currentTarget)}
+      onMouseLeave={() => setAnchor(null)}
+      onPointerDown={() => setAnchor(null)}
+    >
+      <span className="hs-setting-label">
+        <span className="hs-setting-title">{label}</span>
+      </span>
+      {anchor && tip !== null && <FloatingTip anchor={anchor} text={tip} />}
+    </button>
+  );
 }
 
 /** A sentence in the middle of the view: an empty state, or why there is

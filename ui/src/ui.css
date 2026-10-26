@@ -38,6 +38,19 @@
   border-right: var(--bw) solid var(--line);
 }
 
+/* The commit under the pointer, and the one whose change shows. */
+.pull-commits .hs-link-row:hover {
+  background: var(--hov);
+}
+
+.pull-commits .hs-link-row[aria-current='true'] {
+  background: var(--selection);
+}
+
+.pull-commits .hs-link-row[aria-current='true'] .hs-setting-title {
+  color: var(--selection-ink);
+}
+
 .pull-change {
   display: flex;
   flex: 1;

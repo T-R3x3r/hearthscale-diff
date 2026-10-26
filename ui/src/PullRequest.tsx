@@ -18,7 +18,16 @@ import {
   type Refs,
   type Repo,
 } from './host.ts';
-import { BarChoice, DiffNote, Icon, MDivider, MItem, PickerList, StripButton } from './kit.tsx';
+import {
+  BarChoice,
+  DiffNote,
+  Icon,
+  ListPress,
+  MDivider,
+  MItem,
+  PickerList,
+  StripButton,
+} from './kit.tsx';
 import { baseName, commentOn, scopeLabel } from './review.ts';
 
 /** The base a pull request goes into before the person picks one: `main`
@@ -225,23 +234,26 @@ export function Pull({ host }: { host: Host }) {
       ) : (
         <div className="pull-body">
           <div className="hs-scroll pull-commits">
-            <MItem
-              label="All changes"
-              {...(commits && {
-                sub: `${commits.commits.length}${commits.truncated ? '+' : ''} ${commits.commits.length === 1 ? 'commit' : 'commits'}`,
-              })}
-              selected={commit === null}
-              onClick={() => setCommit(null)}
-            />
-            {commits?.commits.map((each) => (
-              <MItem
-                key={each.sha}
-                label={each.subject}
-                sub={`${each.author}, ${dayOf(each.date)}`}
-                selected={commit === each.sha}
-                onClick={() => setCommit(each.sha)}
+            <div className="hs-settings-card">
+              <ListPress
+                label="All changes"
+                tip={
+                  commits &&
+                  `${commits.commits.length}${commits.truncated ? '+' : ''} ${commits.commits.length === 1 ? 'commit' : 'commits'}`
+                }
+                current={commit === null}
+                onClick={() => setCommit(null)}
               />
-            ))}
+              {commits?.commits.map((each) => (
+                <ListPress
+                  key={each.sha}
+                  label={each.subject}
+                  tip={`${each.author}, ${dayOf(each.date)}`}
+                  current={commit === each.sha}
+                  onClick={() => setCommit(each.sha)}
+                />
+              ))}
+            </div>
           </div>
           <div className="pull-change">
             {source === null || read === null ? null : 'error' in read ? (
