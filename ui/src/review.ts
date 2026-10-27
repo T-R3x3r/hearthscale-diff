@@ -90,16 +90,11 @@ function stillAnchored(patch: string, comment: ReviewComment): boolean {
 }
 
 /** Whether a comment survives a freshly read patch. One made in another
- *  repository, or on a file this patch was narrowed away from, is none of
- *  this patch's business; every other one must still find its anchor, and
- *  one whose rows moved is dropped, never re-pointed. */
-export function survives(
-  patch: string,
-  source: { root: string; paths?: string[] },
-  comment: ReviewComment,
-): boolean {
-  if (comment.root !== source.root) return true;
-  if (source.paths?.length && !source.paths.includes(comment.file)) return true;
+ *  repository, or at another scope, is none of this patch's business;
+ *  every other one must still find its anchor, and one whose rows moved
+ *  is dropped, never re-pointed. */
+export function survives(patch: string, source: DiffSource, comment: ReviewComment): boolean {
+  if (comment.root !== source.root || comment.section !== scopeLabel(source)) return true;
   return stillAnchored(patch, comment);
 }
 

@@ -38,7 +38,7 @@ export interface DiffSource {
 }
 
 /** One commit as a branch's log lists it. */
-export interface Commit {
+interface Commit {
   sha: string;
   subject: string;
   author: string;

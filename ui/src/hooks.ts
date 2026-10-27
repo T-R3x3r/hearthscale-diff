@@ -3,7 +3,7 @@
  * hold as chips, and how the tab draws its rows.
  */
 import { useEffect, useRef, useState } from 'react';
-import type { Host, Look } from './host.ts';
+import type { DiffSource, Host, Look } from './host.ts';
 import { blockOf, reviewBlock, survives, type ReviewComment } from './review.ts';
 
 /** The comments the chats on screen hold. A chip the person removed, or a
@@ -32,11 +32,14 @@ export function useReview(host: Host) {
     /** Takes a comment, in place of one on the same rows. */
     add: (made: ReviewComment) => {
       const same = (c: ReviewComment) =>
-        c.root === made.root && c.file === made.file && c.range === made.range;
+        c.root === made.root &&
+        c.section === made.section &&
+        c.file === made.file &&
+        c.range === made.range;
       keep([...held.current.filter((c) => !same(c)), made]);
     },
     /** Lets go of each comment a freshly read patch no longer anchors. */
-    prune: (patch: string, source: { root: string; paths?: string[] }) => {
+    prune: (patch: string, source: DiffSource) => {
       const kept = held.current.filter((c) => survives(patch, source, c));
       if (kept.length !== held.current.length) keep(kept);
     },

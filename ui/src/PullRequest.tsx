@@ -157,7 +157,6 @@ export function Pull({ host }: { host: Host }) {
                   <MItem
                     key={repo.root}
                     label={baseName(repo.root)}
-                    sub={repo.branch || repo.root}
                     selected={repo.root === root}
                     onClick={() => {
                       setMenu(null);

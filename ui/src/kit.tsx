@@ -91,9 +91,10 @@ export function MDivider() {
   return <div className="hs-menu-divider" />;
 }
 
-/** The distance of a tip from its mark, and from the edges of the page. */
-const TIP_OFFSET = 6;
-const TIP_PAD = 8;
+/** The distance of a tip from its mark, and from the edges of the page, as
+ *  counts of the kit's `--space`. */
+const TIP_OFFSET = 1.5;
+const TIP_PAD = 2;
 
 /** A tip floated over the page from its mark: under it from its left edge,
  *  or over it where there is no room below, kept inside the page and never
@@ -102,13 +103,16 @@ function FloatingTip({ anchor, text }: { anchor: HTMLElement; text: string }) {
   const floating = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<CSSProperties>({ visibility: 'hidden' });
   useLayoutEffect(() => {
+    const space = parseFloat(getComputedStyle(anchor).getPropertyValue('--space'));
+    const offset = TIP_OFFSET * space;
+    const pad = TIP_PAD * space;
     const at = anchor.getBoundingClientRect();
     const box = floating.current!.getBoundingClientRect();
-    let top = at.bottom + TIP_OFFSET;
-    if (top + box.height > innerHeight - TIP_PAD && at.top - TIP_OFFSET - box.height >= TIP_PAD) {
-      top = at.top - TIP_OFFSET - box.height;
+    let top = at.bottom + offset;
+    if (top + box.height > innerHeight - pad && at.top - offset - box.height >= pad) {
+      top = at.top - offset - box.height;
     }
-    const left = Math.max(TIP_PAD, Math.min(at.left, innerWidth - TIP_PAD - box.width));
+    const left = Math.max(pad, Math.min(at.left, innerWidth - pad - box.width));
     setPlace({ left, top, visibility: 'visible' });
   }, [anchor, text]);
   return createPortal(

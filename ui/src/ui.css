@@ -22,6 +22,11 @@
   opacity: var(--press-fade);
 }
 
+/* A selected side of a split row. */
+.hs-diff-side[data-sel='1'] {
+  background: var(--diff-pick);
+}
+
 /* The pull-request view: the branch's commits beside the change. */
 .pull-body {
   display: flex;

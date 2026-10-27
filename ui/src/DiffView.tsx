@@ -284,29 +284,27 @@ function splitOf(rows: Row[]): Row[] {
   return split;
 }
 
-/** The colours of a file's lines: each side of each hunk and each run
- *  expanded, read as one text, by line. */
-async function coloursOf(
-  file: PatchFile,
-  runs: Map<string, Run>,
-): Promise<Map<DiffLine, Token[]> | null> {
+/** The colours of `lines`, read as one text in the language of the file at
+ *  `path`, set on `colours` by line. */
+async function paint(path: string, lines: DiffLine[], colours: Map<DiffLine, Token[]>) {
+  const tokens = await highlightLines(
+    path,
+    lines.map((line) => line.text),
+  );
+  lines.forEach((line, n) => {
+    const painted = tokens?.[n];
+    if (painted) colours.set(line, painted);
+  });
+}
+
+/** The colours of a file's hunk lines: each side of each hunk read as one
+ *  text, by line. */
+async function coloursOf(file: PatchFile): Promise<Map<DiffLine, Token[]> | null> {
   if (!languageOf(file.path)) return null;
   const colours = new Map<DiffLine, Token[]>();
-  const paint = async (lines: DiffLine[]) => {
-    const tokens = await highlightLines(
-      file.path,
-      lines.map((line) => line.text),
-    );
-    lines.forEach((line, n) => {
-      const painted = tokens?.[n];
-      if (painted) colours.set(line, painted);
-    });
-  };
-  for (const [at, hunk] of file.hunks.entries()) {
-    const run = runs.get(runKey(file.path, at));
-    if (Array.isArray(run)) await paint(run);
-    await paint(hunk.lines.filter((line) => line.kind !== 'add'));
-    await paint(hunk.lines.filter((line) => line.kind !== 'del'));
+  for (const hunk of file.hunks) {
+    await paint(file.path, hunk.lines.filter((line) => line.kind !== 'add'), colours);
+    await paint(file.path, hunk.lines.filter((line) => line.kind !== 'del'), colours);
   }
   return colours;
 }
@@ -383,21 +381,28 @@ export function DiffView({
     setColours(new Map());
   }, [patch]);
 
-  // Each file is coloured in turn, again when one of its runs expands.
+  /** Adds colours to those of the file at `path`. */
+  const addColours = (path: string, read: Map<DiffLine, Token[]>) => {
+    if (read.size > 0)
+      setColours((was) => new Map(was).set(path, new Map([...(was.get(path) ?? []), ...read])));
+  };
+
+  // Each file's hunks are coloured once, in turn; a run is coloured as it
+  // expands.
   useEffect(() => {
     if (parsed.kind !== 'files') return;
     let live = true;
     void (async () => {
       for (const file of parsed.files) {
-        const read = await coloursOf(file, runs).catch(() => null);
+        const read = await coloursOf(file).catch(() => null);
         if (!live) return;
-        if (read) setColours((was) => new Map(was).set(file.path, read));
+        if (read) addColours(file.path, read);
       }
     })();
     return () => {
       live = false;
     };
-  }, [parsed, runs]);
+  }, [parsed]);
 
   useEffect(() => {
     const el = box.current;
@@ -441,7 +446,15 @@ export function DiffView({
   useEffect(() => {
     if (focus === undefined) return;
     const group = groups.find((g) => g.file.path.toLowerCase() === focus.toLowerCase());
-    if (group && box.current) box.current.scrollTop = group.top;
+    const el = box.current;
+    if (group && el) {
+      // Wrapped rows take the height of their text, so the file's place is
+      // read off the page.
+      if (wrap) {
+        const start = el.querySelector(`[data-path="${CSS.escape(group.file.path)}"]`)!;
+        el.scrollTop += start.getBoundingClientRect().top - el.getBoundingClientRect().top;
+      } else el.scrollTop = group.top;
+    }
     onFocused?.();
   }, [focus, groups]);
 
@@ -459,6 +472,11 @@ export function DiffView({
             newNo: row.newNo + n,
           });
         setRuns((was) => new Map(was).set(key, lines));
+        const read = new Map<DiffLine, Token[]>();
+        void paint(file.path, lines, read).then(
+          () => addColours(file.path, read),
+          () => {},
+        );
       },
       (error: unknown) => setRuns((was) => new Map(was).set(key, wordsOf(error))),
     );
@@ -561,8 +579,8 @@ export function DiffView({
                 at !== undefined &&
                 at >= Math.min(pick.from, pick.to) &&
                 at <= Math.max(pick.from, pick.to);
-              /** What a press on a row with a hunk line at `at` does: it
-               *  selects the line, or stretches the run to it. */
+              /** What a press on a row or a side with a hunk line at `at`
+               *  does: it selects the line, or stretches the run to it. */
               const press = (at: number | undefined) =>
                 onComment && at !== undefined
                   ? (e: ReactMouseEvent) => {
@@ -572,9 +590,18 @@ export function DiffView({
                       select(file.path, at, e.shiftKey);
                     }
                   : undefined;
+              /** One side of a split row. Each side selects by its own
+               *  line, as the two lines of a changed pair lie apart in the
+               *  run a comment quotes. */
               const side = (row: LineRow | undefined, kind: 'old' | 'new') =>
                 row ? (
-                  <span className="hs-diff-side" data-kind={row.line.kind}>
+                  <span
+                    className="hs-diff-side"
+                    data-kind={row.line.kind}
+                    data-sel={chosen(row.at) ? '1' : '0'}
+                    onMouseDown={press(row.at)}
+                    style={press(row.at) ? { cursor: 'pointer' } : undefined}
+                  >
                     <span className="hs-diff-no" style={{ width: GUTTER }}>
                       {(kind === 'old' ? row.line.oldNo : row.line.newNo) ?? ''}
                     </span>
@@ -585,7 +612,7 @@ export function DiffView({
                   <span className="hs-diff-side" data-kind="none" />
                 );
               return (
-                <div key={file.path} style={{ position: 'relative' }}>
+                <div key={file.path} data-path={file.path} style={{ position: 'relative' }}>
                   <div
                     className="hs-diff-file"
                     onClick={() =>
@@ -628,18 +655,8 @@ export function DiffView({
                       );
                     }
                     if (row.kind === 'pair') {
-                      const ats = [row.left?.at, row.right?.at].filter(
-                        (n): n is number => n !== undefined,
-                      );
-                      const lowest = ats.length > 0 ? Math.min(...ats) : undefined;
                       return (
-                        <div
-                          key={`${first + at}`}
-                          className="hs-diff-split"
-                          data-sel={ats.some(chosen) ? '1' : '0'}
-                          onMouseDown={press(lowest)}
-                          style={press(lowest) ? { cursor: 'pointer' } : undefined}
-                        >
+                        <div key={`${first + at}`} className="hs-diff-split">
                           {side(row.left, 'old')}
                           {side(row.right, 'new')}
                         </div>
