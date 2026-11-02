@@ -44,7 +44,7 @@ export function StripButton({
   children: ReactNode;
 }) {
   return (
-    <span onClick={onClick} className="hs-hovbox-ink hs-tipwrap hs-inkdim hs-panel-button">
+    <span onClick={onClick} className="hs-hovbox-ink hs-inkdim hs-panel-button">
       {children}
     </span>
   );
