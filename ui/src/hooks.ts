@@ -1,9 +1,9 @@
 /**
  * What both views of the app keep: the review comments the chats on screen
- * hold as chips, and how the tab draws its rows.
+ * hold as chips, how the tab draws its rows, and the places it has shown.
  */
 import { useEffect, useRef, useState } from 'react';
-import type { DiffSource, Host, Look } from './host.ts';
+import type { DiffSource, Direction, Host, Look } from './host.ts';
 import { blockOf, reviewBlock, survives, type ReviewComment } from './review.ts';
 
 /** The comments the chats on screen hold. A chip the person removed, or a
@@ -56,4 +56,50 @@ export function useLook(host: Host): [Look, (next: Look) => void] {
       void host.setLook(next);
     },
   ];
+}
+
+/** Back and forward through the places the tab has shown, in memory. `open`
+ *  shows a place, and `exists` says whether one can still be shown. What
+ *  comes back is the person's move to a place, which clears what lies
+ *  forward. */
+export function usePlaces<Place>(
+  host: Host,
+  at: Place | null,
+  exists: (place: Place) => Promise<boolean>,
+  open: (place: Place) => void,
+): (next: Place) => void {
+  const places = useRef<Record<Direction, Place[]>>({ back: [], forward: [] });
+  const latest = useRef({ at, exists, open });
+  latest.current = { at, exists, open };
+  const same = (a: Place, b: Place) => JSON.stringify(a) === JSON.stringify(b);
+
+  useEffect(() => {
+    const walk = async (direction: Direction) => {
+      const steps = places.current;
+      while (steps[direction].length) {
+        const place = steps[direction].pop()!;
+        if (!(await latest.current.exists(place).catch(() => false))) continue;
+        const { at, open } = latest.current;
+        if (at && same(at, place)) continue;
+        if (at) steps[direction === 'back' ? 'forward' : 'back'].push(at);
+        open(place);
+        // A step queued behind this one runs before the place renders.
+        latest.current.at = place;
+        return;
+      }
+    };
+    let walking = Promise.resolve();
+    host.onHistory((direction) => {
+      walking = walking.then(() => walk(direction));
+    });
+  }, [host]);
+
+  return (next) => {
+    const { at, open } = latest.current;
+    if (at && !same(at, next)) {
+      places.current.back.push(at);
+      places.current.forward = [];
+    }
+    open(next);
+  };
 }

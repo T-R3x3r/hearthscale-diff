@@ -8,7 +8,7 @@
  */
 import { useEffect, useState } from 'react';
 import { DiffView } from './DiffView.tsx';
-import { useLook, useReview } from './hooks.ts';
+import { useLook, usePlaces, useReview } from './hooks.ts';
 import {
   wordsOf,
   type DiffSource,
@@ -42,6 +42,14 @@ function baseOf(refs: Refs): string | null {
 const dayOf = (date: string) =>
   new Date(date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
+/** What the view shows: a repository, a base, and a commit of that branch
+ *  or, with none, the whole branch. */
+interface Place {
+  root: string;
+  base: string | null;
+  commit: string | null;
+}
+
 export function Pull({ host }: { host: Host }) {
   const [repos, setRepos] = useState<Repo[] | null>(null);
   const [repoError, setRepoError] = useState<string | null>(null);
@@ -56,6 +64,22 @@ export function Pull({ host }: { host: Host }) {
   const [asked, setAsked] = useState(0);
   const review = useReview(host);
   const [look, setLook] = useLook(host);
+  const go = usePlaces<Place>(
+    host,
+    root ? { root, base, commit } : null,
+    async ({ root, base, commit }) => {
+      if (!(await host.repos()).some((repo) => repo.root === root)) return false;
+      if (base === null) return true;
+      if (!(await host.refs(root)).branches.includes(base)) return false;
+      return commit === null || (await host.log(root, base)).commits.some((c) => c.sha === commit);
+    },
+    (place) => {
+      setMenu(null);
+      setRoot(place.root);
+      setBase(place.base);
+      setCommit(place.commit);
+    },
+  );
 
   useEffect(() => {
     let live = true;
@@ -158,11 +182,7 @@ export function Pull({ host }: { host: Host }) {
                     key={repo.root}
                     label={baseName(repo.root)}
                     selected={repo.root === root}
-                    onClick={() => {
-                      setMenu(null);
-                      setRoot(repo.root);
-                      setCommit(null);
-                    }}
+                    onClick={() => go({ root: repo.root, base, commit: null })}
                   />
                 ))}
                 <MDivider />
@@ -191,11 +211,7 @@ export function Pull({ host }: { host: Host }) {
                       label={`Into ${branch}`}
                       selected={branch === base}
                       disabled={branch === refs?.current}
-                      onClick={() => {
-                        setMenu(null);
-                        setBase(branch);
-                        setCommit(null);
-                      }}
+                      onClick={() => go({ root, base: branch, commit: null })}
                     />
                   ))}
                 </PickerList>
@@ -241,7 +257,7 @@ export function Pull({ host }: { host: Host }) {
                   `${commits.commits.length}${commits.truncated ? '+' : ''} ${commits.commits.length === 1 ? 'commit' : 'commits'}`
                 }
                 current={commit === null}
-                onClick={() => setCommit(null)}
+                onClick={() => go({ root, base, commit: null })}
               />
               {commits?.commits.map((each) => (
                 <ListPress
@@ -249,7 +265,7 @@ export function Pull({ host }: { host: Host }) {
                   label={each.subject}
                   tip={`${each.author}, ${dayOf(each.date)}`}
                   current={commit === each.sha}
-                  onClick={() => setCommit(each.sha)}
+                  onClick={() => go({ root, base, commit: each.sha })}
                 />
               ))}
             </div>

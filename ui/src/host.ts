@@ -68,6 +68,9 @@ export interface Look {
   wrap: boolean;
 }
 
+/** A step through the places a tab has shown. */
+export type Direction = 'back' | 'forward';
+
 /** One MCP content block of the view's context. */
 export type ContextBlock = Record<string, unknown> & { type: string };
 
@@ -200,6 +203,13 @@ export class Host {
       const path = pathOf(changed['openai/deepLink']);
       if (path !== null) fn(path);
     });
+  }
+
+  /** Calls `fn` each time the person asks the tab to go back or forward. */
+  onHistory(fn: (direction: Direction) => void): void {
+    this.app.fallbackNotificationHandler = async (note) => {
+      if (note.method === 'hearthscale/ui/history') fn(note.params?.direction as Direction);
+    };
   }
 }
 

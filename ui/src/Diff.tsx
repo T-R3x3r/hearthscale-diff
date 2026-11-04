@@ -10,7 +10,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { DiffView, parsePatch } from './DiffView.tsx';
-import { useLook, useReview } from './hooks.ts';
+import { useLook, usePlaces, useReview } from './hooks.ts';
 import { wordsOf, type DiffSource, type Host, type Patch, type Refs, type Repo } from './host.ts';
 import { BarChoice, DiffNote, Icon, MDivider, MItem, PickerList, StripButton } from './kit.tsx';
 import { baseName, commentOn, scopeLabel } from './review.ts';
@@ -39,6 +39,17 @@ export function Diff({ host }: { host: Host }) {
   const [asked, setAsked] = useState(0);
   const review = useReview(host);
   const [look, setLook] = useLook(host);
+  const go = usePlaces<DiffSource>(
+    host,
+    diff,
+    async (place) =>
+      (await host.repos()).some((repo) => repo.root === place.root) &&
+      (place.scope !== 'branch' || (await host.refs(place.root)).branches.includes(place.base!)),
+    (place) => {
+      setMenu(null);
+      setDiff(place);
+    },
+  );
 
   /** The file whose change comes to the top once its patch shows, as
    *  `git` names it inside its repository. */
@@ -57,7 +68,7 @@ export function Diff({ host }: { host: Host }) {
       return;
     }
     if (!repo) return;
-    setDiff({ root: repo.root, scope: 'working' });
+    go({ root: repo.root, scope: 'working' });
     setFocus(insideOf(repo.root, path));
     setAsked((n) => n + 1);
   };
@@ -158,14 +169,13 @@ export function Diff({ host }: { host: Host }) {
                     label={baseName(repo.root)}
                     sub={repo.branch || repo.root}
                     selected={repo.root === diff.root}
-                    onClick={() => {
-                      setMenu(null);
-                      setDiff({
+                    onClick={() =>
+                      go({
                         root: repo.root,
                         scope: diff.scope,
                         ...(diff.base && { base: diff.base }),
-                      });
-                    }}
+                      })
+                    }
                   />
                 ))}
                 <MDivider />
@@ -190,18 +200,12 @@ export function Diff({ host }: { host: Host }) {
                 <MItem
                   label={scopeLabel({ root: diff.root, scope: 'working' })}
                   selected={diff.scope === 'working'}
-                  onClick={() => {
-                    setMenu(null);
-                    setDiff({ root: diff.root, scope: 'working' });
-                  }}
+                  onClick={() => go({ root: diff.root, scope: 'working' })}
                 />
                 <MItem
                   label={scopeLabel({ root: diff.root, scope: 'staged' })}
                   selected={diff.scope === 'staged'}
-                  onClick={() => {
-                    setMenu(null);
-                    setDiff({ root: diff.root, scope: 'staged' });
-                  }}
+                  onClick={() => go({ root: diff.root, scope: 'staged' })}
                 />
                 <MDivider />
                 {(refs?.branches ?? []).map((branch) => (
@@ -210,10 +214,7 @@ export function Diff({ host }: { host: Host }) {
                     label={scopeLabel({ root: diff.root, scope: 'branch', base: branch })}
                     selected={diff.scope === 'branch' && diff.base === branch}
                     disabled={branch === refs?.current}
-                    onClick={() => {
-                      setMenu(null);
-                      setDiff({ root: diff.root, scope: 'branch', base: branch });
-                    }}
+                    onClick={() => go({ root: diff.root, scope: 'branch', base: branch })}
                   />
                 ))}
               </PickerList>
